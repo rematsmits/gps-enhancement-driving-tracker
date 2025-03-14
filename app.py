@@ -220,17 +220,10 @@ def process_chunk_with_valhalla(chunk):
         },
         "costing_options": {
             "auto": {
-<<<<<<< Updated upstream
-                "search_radius": 100,  # Increased from 50 for better road matching in rural areas
-                "turn_penalty_factor": 50,  # Reduced from 100 to allow more natural routes
-                "service_penalty": 0,
-                "shortest": False  # Changed to false for more realistic routes
-=======
                 "search_radius": 60,  # Increased further to find proper roads
                 "turn_penalty_factor": 100,  # Dramatically increased to heavily penalize sharp turns
                 "shortest": False,  # Essential to avoid shortcuts
                 "max_distance": 10  # Limit max distance considered
->>>>>>> Stashed changes
             }
         },
         "trace_options": {
