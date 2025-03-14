@@ -1,0 +1,51 @@
+version: '3.8'
+services:
+  valhalla:
+    image: ghcr.io/gis-ops/docker-valhalla/valhalla:latest
+    container_name: valhalla_service
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./valhalla_data:/custom_files
+    environment:
+      # OSM data source
+      - tile_urls=https://download.geofabrik.de/europe/latvia-latest.osm.pbf
+      # Performance settings
+      - server_threads=1
+      - min_disk_size_gb=5
+      - verbose=true
+      # Permission fixing
+      - DOCKER_USER_ID=1000
+      - DOCKER_GROUP_ID=1000
+      # Higher resources for successful build
+      - tile_force_low_memory=false
+      # Only build what's needed for auto routing
+      - build_transit=false
+      - build_bicycle=false
+      - build_pedestrian=false
+    # Allow more time for tile building
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/status"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 120s
+    # Ensure enough resources
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+  app:
+    build: .
+    container_name: main_app
+    ports:
+      - "5000:5000"
+    depends_on:
+      - valhalla
+    environment:
+      - FLASK_ENV=development
+    volumes:
+      - .:/app
