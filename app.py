@@ -140,80 +140,12 @@ def interpolate_track(points, max_time_gap=1):  # Reduced from 3 to 1 seconds fo
     return interpolated
 
 # Split track into chunks that are under Valhalla's point limit but optimize for road matching
-def chunk_track(points, max_chunk_size=15000, overlap=50):
+def chunk_track(points, max_chunk_size=15000, overlap=20):
     """Split track into chunks with natural chunk boundaries based on features like pauses and turns"""
     # For very small tracks, don't split
     if len(points) <= max_chunk_size:
         return [points]  # Track is small enough to process in one go
-    
-    # First, try to find natural break points based on:
-    # 1. Pauses in movement (time gaps)
-    # 2. Sharp turns or direction changes
-    # 3. Speed changes
-    
-    break_indices = []
-    
-    # Only analyze inner points (not first/last)
-    for i in range(1, len(points) - 1):
-        should_break = False
-        
-        # Check for time gaps (pauses) if time data is available
-        if 'time' in points[i] and 'time' in points[i-1] and points[i]['time'] and points[i-1]['time']:
-            time_diff = (points[i]['time'] - points[i-1]['time']).total_seconds()
-            if time_diff > 60:  # Significant pause (1+ minute)
-                should_break = True
-        
-        # Check for sharp turns by calculating angle change
-        if i > 1:
-            p1 = points[i-2]
-            p2 = points[i-1]
-            p3 = points[i]
-            
-            # Calculate bearing changes
-            bearing1 = math.atan2(p2['lon'] - p1['lon'], p2['lat'] - p1['lat'])
-            bearing2 = math.atan2(p3['lon'] - p2['lon'], p3['lat'] - p2['lat'])
-            
-            angle_change = abs(bearing2 - bearing1)
-            # Normalize angle to [0, π]
-            while angle_change > math.pi:
-                angle_change -= 2 * math.pi
-            angle_change = abs(angle_change)
-            
-            if angle_change > math.pi / 4:  # More than 45° turn
-                should_break = True
-        
-        # Add as potential break point if criteria met
-        if should_break:
-            break_indices.append(i)
-    
-    # If we found natural break points, use them
-    if break_indices:
-        # Ensure we don't have break points too close to each other
-        filtered_breaks = [0]  # Start with the first point
-        min_chunk_size = max_chunk_size // 10  # Minimum chunk size (10% of max)
-        
-        for idx in sorted(break_indices):
-            if idx - filtered_breaks[-1] >= min_chunk_size:
-                filtered_breaks.append(idx)
-        
-        # Add the last point
-        if len(points) - 1 - filtered_breaks[-1] >= min_chunk_size:
-            filtered_breaks.append(len(points) - 1)
-        
-        # Create chunks based on natural breaks
-        natural_chunks = []
-        for i in range(len(filtered_breaks) - 1):
-            start_idx = max(0, filtered_breaks[i] - overlap // 2)
-            end_idx = min(len(points), filtered_breaks[i+1] + overlap // 2)
-            natural_chunks.append(points[start_idx:end_idx])
-        
-        # If we have a reasonable number of natural chunks, use them
-        if len(natural_chunks) >= 2 and all(len(chunk) <= max_chunk_size for chunk in natural_chunks):
-            app.logger.info(f"Using {len(natural_chunks)} natural chunks based on track features")
-            return natural_chunks
-    
-    # Fallback: split evenly if natural chunking didn't work well
-    app.logger.info("Using standard chunk splitting")
+
     chunks = []
     start_idx = 0
     
@@ -291,10 +223,6 @@ def process_chunk_with_valhalla(chunk):
                 "search_radius": 60,  # Increased further to find proper roads
                 "turn_penalty_factor": 100,  # Dramatically increased to heavily penalize sharp turns
                 "shortest": False,  # Essential to avoid shortcuts
-                "use_highways": 0.5,  # Reduced preference for highways
-                "use_tolls": 0.5,  # Reduced toll preference
-                "ferry_cost": 500,  # Avoid ferries
-                "country_crossing_cost": 0,  # No country crossing concerns
                 "max_distance": 10  # Limit max distance considered
             }
         },
@@ -377,62 +305,47 @@ def process_chunk_with_valhalla(chunk):
         return None
 
 def connect_processed_chunks(chunks):
-    """Connect multiple processed chunks into a continuous track with improved connection logic"""
+    """Connect multiple processed chunks with ultra-simple end-to-end stitching"""
+    # Handle empty input
     if not chunks:
         return []
     if len(chunks) == 1:
         return chunks[0]
     
+    # Start with the first valid chunk
     connected = chunks[0].copy()
     
+    # Simply connect each subsequent chunk end-to-end
     for i in range(1, len(chunks)):
+        # Skip empty chunks
         if not chunks[i]:
             continue
             
-        # Find best connection point between chunks
-        if len(connected) > 10 and len(chunks[i]) > 10:
-            # Use more points for matching to find better connections
-            last_points = connected[-30:]  # Increased from 15 to 30 for better matching
-            first_points = chunks[i][:30]  # Increased from 15 to 30 for better matching
-            
-            min_dist = float('inf')
-            best_prev_idx = -1
-            best_new_idx = -1
-            
-            for j, (lat1, lon1) in enumerate(last_points):
-                for k, (lat2, lon2) in enumerate(first_points):
-                    dist = haversine(lat1, lon1, lat2, lon2)
-                    if dist < min_dist:
-                        min_dist = dist
-                        best_prev_idx = len(connected) - 30 + j  # Adjusted for new window size
-                        best_new_idx = k
-            
-            # Connect at closest matching point with improved distance threshold
-            if min_dist < 30:  # Reduced from 50 to 30 meters for more precision
-                connected = connected[:best_prev_idx + 1]
-                connected.extend(chunks[i][best_new_idx:])
-            else:
-                # If no good connection, create a gradual transition between chunks
-                # instead of a straight line to prevent spikes
-                if min_dist < 300:  # Increased from 200 for more cases
-                    p1 = connected[-1]
-                    p2 = chunks[i][0]
-                    
-                    # Add multiple intermediate points instead of just one
-                    steps = min(10, max(3, int(min_dist / 30)))
-                    for step in range(1, steps):
-                        frac = step / steps
-                        midpoint = ((p1[0] + frac * (p2[0] - p1[0])), 
-                                    (p1[1] + frac * (p2[1] - p1[1])))
-                        connected.append(midpoint)
-                
-                # Skip fewer points from the next chunk to ensure smoother transition
-                skip_count = min(2, len(chunks[i]) // 30)
-                connected.extend(chunks[i][skip_count:])
+        # Simple connection strategy
+        p1 = connected[-1]  # Last point of current track
+        p2 = chunks[i][0]  # First point of next chunk
+        
+        # Calculate distance between endpoints
+        dist = haversine(p1[0], p1[1], p2[0], p2[1])
+        
+        # Log the connection
+        app.logger.info(f"Connecting chunks {i-1} and {i} (distance: {dist:.1f}m)")
+        
+        # If endpoints are very close (within 10m), skip the first point of next chunk
+        if dist < 10:
+            connected.extend(chunks[i][1:])
+        # For moderate gaps (10-80m), add a single midpoint to smooth the transition
+        elif dist < 80:
+            # Add a single midpoint halfway between
+            midpoint = (
+                (p1[0] + p2[0]) / 2, 
+                (p1[1] + p2[1]) / 2
+            )
+            connected.append(midpoint)
+            connected.extend(chunks[i])
+        # For all other cases, just append the next chunk directly
         else:
-            # Skip fewer points for smoother transitions
-            skip_count = min(2, len(chunks[i]) // 30)
-            connected.extend(chunks[i][skip_count:])
+            connected.extend(chunks[i])
     
     return connected
 
@@ -465,7 +378,8 @@ def process_track(track, use_map_matching=True):
     app.logger.info(f"Processing track with {num_points} points, chunk size {max_chunk_size}, overlap {overlap}")
     
     # Split into chunks and process with Valhalla
-    chunks = chunk_track(processed_points, max_chunk_size, overlap)
+    chunks = chunk_track(processed_points)
+    # chunks = chunk_track(processed_points, max_chunk_size, overlap)
     app.logger.info(f"Split track into {len(chunks)} chunks")
     
     processed_chunks = []
@@ -473,7 +387,7 @@ def process_track(track, use_map_matching=True):
     for i, chunk in enumerate(chunks):
         app.logger.info(f"Processing chunk {i+1}/{len(chunks)} with {len(chunk)} points")
         matched_coords = process_chunk_with_valhalla(chunk)
-        
+
         if matched_coords and len(matched_coords) >= 5:
             app.logger.info(f"Successfully processed chunk {i+1} with {len(matched_coords)} points")
             processed_chunks.append(matched_coords)
@@ -493,98 +407,6 @@ def process_track(track, use_map_matching=True):
     
     # Connect the processed chunks
     matched_track = connect_processed_chunks(processed_chunks)
-    
-    # Check for any remaining spikes (straight lines longer than 100m)
-    if matched_track and len(matched_track) > 5:
-        spike_free_track = []
-        for i in range(len(matched_track) - 1):
-            p1 = matched_track[i]
-            p2 = matched_track[i + 1]
-            spike_free_track.append(p1)
-            
-            # Check for long straight lines that could be spikes
-            dist = haversine(p1[0], p1[1], p2[0], p2[1])
-            
-            # More aggressive detection of straight lines
-            if dist > 100:  # Reduced from 300m to 100m to catch more spikes
-                app.logger.info(f"Found potential spike: {dist:.1f}m between points")
-                
-                # Add more points to break up the spike
-                steps = max(5, int(dist / 20))  # Increased from 3 to 5 steps minimum, 100m to 20m per step
-                
-                # Check if we can use nearby points instead of linear interpolation
-                nearby_points = []
-                search_radius = min(dist / 2, 500)  # Search up to half the spike distance or 500m max
-                
-                for j in range(max(0, i-10), min(len(matched_track), i+10)):
-                    if j != i and j != i+1:  # Skip the current points (spike endpoints)
-                        p_test = matched_track[j]
-                        # Check if this point is close to the spike line
-                        mid_lat = (p1[0] + p2[0]) / 2
-                        mid_lon = (p1[1] + p2[1]) / 2
-                        if haversine(p_test[0], p_test[1], mid_lat, mid_lon) < search_radius:
-                            nearby_points.append(p_test)
-                
-                if nearby_points:
-                    # If we found nearby points, use them to create a more natural path
-                    app.logger.info(f"Found {len(nearby_points)} nearby points to replace spike")
-                    # Sort by distance from start point
-                    nearby_points.sort(key=lambda p: haversine(p[0], p[1], p1[0], p1[1]))
-                    for np in nearby_points:
-                        spike_free_track.append(np)
-                else:
-                    # Otherwise use denser linear interpolation
-                    for j in range(1, steps):
-                        frac = j / steps
-                        mid_lat = p1[0] + frac * (p2[0] - p1[0])
-                        mid_lon = p1[1] + frac * (p2[1] - p1[1])
-                        spike_free_track.append((mid_lat, mid_lon))
-            
-
-        # Add the last point
-        if matched_track:
-            spike_free_track.append(matched_track[-1])
-        
-        matched_track = spike_free_track
-    
-    # Add interpolation if too few points were returned
-    if matched_track and (len(matched_track) < 300 or len(matched_track) < num_points * 0.2):  # Changed threshold from 200 to 300 points and 10% to 20%
-        # Calculate average distance between points for adaptive interpolation
-        total_dist = 0
-        count = 0
-        for i in range(len(matched_track) - 1):
-            lat1, lon1 = matched_track[i]
-            lat2, lon2 = matched_track[i+1]
-            dist = haversine(lat1, lon1, lat2, lon2)
-            if dist > 0:
-                total_dist += dist
-                count += 1
-        
-        avg_dist = total_dist / max(1, count) if count > 0 else 20
-        target_dist = min(3, max(0.5, avg_dist / 5))  # More aggressive target distance
-        
-        # Interpolate to ensure consistent point density
-        interpolated_matched_track = []
-        for i in range(len(matched_track) - 1):
-            lat1, lon1 = matched_track[i]
-            lat2, lon2 = matched_track[i+1]
-            dist = haversine(lat1, lon1, lat2, lon2)
-            
-            interpolated_matched_track.append((lat1, lon1))
-            
-            if dist > target_dist * 1.1:  # Reduced threshold
-                num_points = max(1, int(dist / target_dist) - 1)
-                for j in range(1, num_points + 1):
-                    frac = j / (num_points + 1)
-                    new_lat = lat1 + frac * (lat2 - lat1)
-                    new_lon = lon1 + frac * (lon2 - lon1)
-                    interpolated_matched_track.append((new_lat, new_lon))
-        
-        # Add the last point
-        if matched_track:
-            interpolated_matched_track.append(matched_track[-1])
-        
-        return interpolated_matched_track
     
     return matched_track
 
