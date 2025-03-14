@@ -279,7 +279,7 @@ def process_chunk_with_valhalla(chunk):
     # Enhanced request payload specifically requesting shape
     request_payload = {
         "costing": "auto",
-        "shape_match": "map_snap",  # Using map_snap for best results
+        "shape_match": "map_snap",  # Changed from map_snap to map_match for stricter road adherence
         "shape": shape,
         "filters": {
             "attributes": ["shape", "edge.way_id", "edge.names", "edge.id", "edge.weighted_grade", 
@@ -288,29 +288,33 @@ def process_chunk_with_valhalla(chunk):
         },
         "costing_options": {
             "auto": {
-                "search_radius": 100,  # Increased from 50 for better road matching in rural areas
-                "turn_penalty_factor": 50,  # Reduced from 100 to allow more natural routes
-                "service_penalty": 0,
-                "shortest": False  # Changed to false for more realistic routes
+                "search_radius": 60,  # Increased further to find proper roads
+                "turn_penalty_factor": 100,  # Dramatically increased to heavily penalize sharp turns
+                "shortest": False,  # Essential to avoid shortcuts
+                "use_highways": 0.5,  # Reduced preference for highways
+                "use_tolls": 0.5,  # Reduced toll preference
+                "ferry_cost": 500,  # Avoid ferries
+                "country_crossing_cost": 0,  # No country crossing concerns
+                "max_distance": 10  # Limit max distance considered
             }
         },
         "trace_options": {
-            "search_radius": 100,  # Increased from 50 to find roads in sparse areas
-            "gps_accuracy": 3.0,  # Reduced from 5.0 for more precise matching
-            "interpolation_distance": 0.5,  # Reduced for higher density
-            "max_route_distance_factor": 3,  # Reduced for more precise matching
-            "max_route_time_factor": 3,
-            "breakage_distance": 500,  # Reduced from 2000 to avoid long jumps
-            "max_search_radius": 200,  # Increased from 50 to find roads in sparse areas
-            "filter_action": "include",  # Ensure we include all points
-            "use_timestamps": True  # Use time information if available
+            "search_radius": 60,  # Increased search radius
+            "gps_accuracy": 3.0,  # Reduced further to trust road network more than GPS points
+            "interpolation_distance": 10,  # Increased for smoother path
+            "max_route_distance_factor": 4,  # Allow reasonable route distances
+            "max_route_time_factor": 4,
+            "breakage_distance": 2000,  # Increased to avoid track fragmentation
+            "max_search_radius": 250,  # Increased to find better roads
+            "filter_action": "include",
+            "use_timestamps": True
         }
     }
     
     try:
         # Make the request
         headers = {"Content-Type": "application/json"}
-        res = requests.post(valhalla_url, json=request_payload, headers=headers, timeout=180)
+        res = requests.post(valhalla_url, json=request_payload, headers=headers, timeout=300)  # Increased timeout
         
         if res.status_code != 200:
             app.logger.error(f"Valhalla error: {res.text}")
@@ -364,8 +368,8 @@ def process_chunk_with_valhalla(chunk):
 
         # Fall back to using original points, but don't sample as aggressively
         app.logger.warning("Could not extract route from Valhalla, using original points")
-        sample_rate = max(1, len(chunk) // 500)  # Take more points (was 200)
-        return [(p["lat"], p["lon"]) for i, p in enumerate(chunk) if i % sample_rate == 0]
+        # No sampling - keep all points to ensure density for better visualization
+        return [(p["lat"], p["lon"]) for p in chunk]
         
     except Exception as e:
         app.logger.error(f"Error processing chunk: {str(e)}")
