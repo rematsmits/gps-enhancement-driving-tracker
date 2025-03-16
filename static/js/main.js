@@ -219,8 +219,9 @@ function updateMeasurements() {
   
   if (hasTime) {
     try {
-      var t1 = new Date(trackPoints[startIdx].time).getTime();
-      var t2 = new Date(trackPoints[endIdx].time).getTime();
+      // Ensure the time strings are in a consistent format (e.g., UTC)
+      var t1 = new Date(trackPoints[startIdx].time + 'Z').getTime(); // Append 'Z' for UTC
+      var t2 = new Date(trackPoints[endIdx].time + 'Z').getTime(); // Append 'Z' for UTC
       dtSec = Math.max(0, (t2 - t1) / 1000);
       debugLog(`Time difference: ${dtSec} seconds`);
     } catch (e) {
