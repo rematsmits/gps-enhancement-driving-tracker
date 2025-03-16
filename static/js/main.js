@@ -235,9 +235,30 @@ function updateMeasurements() {
   var resultText = "Distance: " + (totalDist/1000).toFixed(3) + " km<br/>";
   
   if (hasTime && dtSec > 0) {
-    resultText += "Duration: " + dtSec.toFixed(1) + " s<br/>";
+    // Format time as mm:ss.ms with 0.1 second precision
+    const totalSeconds = Math.floor(dtSec);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    const tenthsOfSecond = Math.floor((dtSec - totalSeconds) * 10);
+    
+    // Format with leading zeros for minutes and seconds
+    const formattedMinutes = minutes.toString().padStart(2, '0');
+    const formattedSeconds = seconds.toString().padStart(2, '0');
+    const formattedTenthsOfSecond = tenthsOfSecond.toString().padEnd(2, '0');
+    
+    const timeDisplay = `${formattedMinutes}:${formattedSeconds}.${formattedTenthsOfSecond}`;
+    
+    resultText += "Duration: " + timeDisplay + "<br/>";
+    
     var speed = (totalDist/1000) / (dtSec/3600);
-    resultText += "Average Speed: " + speed.toFixed(2) + " km/h";
+    
+    // Add a sanity check for unrealistic speeds (over 150 km/h)
+    if (speed > 150) {
+      debugLog(`Warning: Calculated speed (${speed.toFixed(2)} km/h) seems unrealistic.`);
+      resultText += "Average Speed: " + speed.toFixed(2) + " km/h (unrealistic value!)";
+    } else {
+      resultText += "Average Speed: " + speed.toFixed(2) + " km/h";
+    }
   } else {
     resultText += "Time data not available";
   }

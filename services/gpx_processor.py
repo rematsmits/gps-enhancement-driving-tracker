@@ -1,5 +1,6 @@
 import gpxpy
 import logging
+import datetime
 from services.interpolator import format_time_for_js
 
 # Configure logging
@@ -28,24 +29,40 @@ def build_gpx_from_coords(matched_coords, raw_points, skip_map_matching=False):
     seg = gpxpy.gpx.GPXTrackSegment()
     gpx_track.segments.append(seg)
     
-    # Distribute times across matched points
-    total_matched = len(matched_coords)
-    total_original = len(raw_points)
+    # Get the actual time span from original points
+    start_time = raw_points[0]['time']
+    end_time = raw_points[-1]['time']
     
+    # Calculate the total real-world duration in seconds
+    if start_time and end_time:
+        total_duration = (end_time - start_time).total_seconds()
+        logger.info(f"Original track duration: {total_duration:.2f} seconds")
+    else:
+        total_duration = None
+    
+    total_matched = len(matched_coords)
     logger.info(f"Distributing timestamps across {total_matched} points")
     
     for i, (lat, lon) in enumerate(matched_coords):
-        # Get time from original points
-        if skip_map_matching:
-            time = raw_points[min(i, total_original-1)]['time']
-        else:
-            original_idx = min(int(i * total_original / total_matched), total_original - 1)
-            time = raw_points[original_idx]['time']
-        
         # Create GPX point
         point = gpxpy.gpx.GPXTrackPoint(latitude=lat, longitude=lon)
-        if time:
-            point.time = time
+        
+        # Assign time based on a more accurate linear interpolation
+        if start_time and end_time and total_duration:
+            # Calculate the time as a linear progression from start to end
+            fraction = i / (total_matched - 1) if total_matched > 1 else 0
+            point_time = start_time + datetime.timedelta(seconds=fraction * total_duration)
+            point.time = point_time
+        elif skip_map_matching:
+            # If skipping map matching, use original timestamp if available
+            time_idx = min(i, len(raw_points) - 1)
+            point.time = raw_points[time_idx]['time']
+        else:
+            # Fallback to old method as last resort
+            total_original = len(raw_points)
+            original_idx = min(int(i * total_original / total_matched), total_original - 1)
+            point.time = raw_points[original_idx]['time']
+            
         seg.points.append(point)
     
     # Convert to XML for download
