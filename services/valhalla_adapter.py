@@ -57,19 +57,30 @@ def process_chunk_with_valhalla(chunk, valhalla_url="http://valhalla:8002/trace_
         "shape": shape,
         "filters": {
             "attributes": ["shape", "edge.way_id", "edge.names", "edge.id", "edge.weighted_grade", 
-                          "matched_point.type", "matched_point.edge_index"],
+                          "matched_point.type", "matched_point.edge_index", "edge.surface"],
             "action": "include"
         },
         "costing_options": {
             "auto": {
-                "search_radius": 60,  # Increased further to find proper roads
+                "search_radius": 100,  # Increased further to find proper roads
                 "turn_penalty_factor": 100,  # Dramatically increased to heavily penalize sharp turns
                 "shortest": False,  # Essential to avoid shortcuts
-                "max_distance": 10  # Limit max distance considered
+                "max_distance": 10,  # Limit max distance considered
+                
+                # Added options to avoid unpaved/country roads
+                "use_highways": 1.0,  # Maximum preference for highways (0.0-1.0)
+                "use_tolls": 1.0,     # Allow toll roads without penalty
+                "use_trails": 0.0,    # Avoid trails completely (0.0-1.0)
+                "exclude_unpaved": True,  # Explicitly exclude unpaved roads when possible
+                
+                # Surface type penalties - higher values avoid these surfaces
+                "surface_factor": 0.5,  # Factor that penalizes roads based on surface type
+                # Hierarchy factor - higher value (0-1) prefers higher-class roads
+                "hierarchy_factor": 0.8  # Strongly prefer major roads over minor ones
             }
         },
         "trace_options": {
-            "search_radius": 60,  # Increased search radius
+            "search_radius": 100,  # Increased search radius
             "gps_accuracy": 3.0,  # Reduced further to trust road network more than GPS points
             "interpolation_distance": 10,  # Increased for smoother path
             "max_route_distance_factor": 4,  # Allow reasonable route distances
