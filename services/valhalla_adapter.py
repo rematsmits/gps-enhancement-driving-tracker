@@ -53,7 +53,7 @@ def process_chunk_with_valhalla(chunk, valhalla_url="http://valhalla:8002/trace_
     # Enhanced request payload specifically requesting shape
     request_payload = {
         "costing": "auto",
-        "shape_match": "map_snap",  # Changed from map_snap to map_match for stricter road adherence
+        "shape_match": "walk_or_snap",  # Changed from map_snap to map_match for stricter road adherence
         "shape": shape,
         "filters": {
             "attributes": ["shape", "edge.way_id", "edge.names", "edge.id", "edge.weighted_grade", 
@@ -65,14 +65,12 @@ def process_chunk_with_valhalla(chunk, valhalla_url="http://valhalla:8002/trace_
                 "search_radius": 100,  # Increased further to find proper roads
                 "turn_penalty_factor": 100,  # Dramatically increased to heavily penalize sharp turns
                 "shortest": False,  # Essential to avoid shortcuts
-                "max_distance": 10,  # Limit max distance considered
-                
+                "max_distance": 100,  # Limit max distance considered
                 # Added options to avoid unpaved/country roads
                 "use_highways": 1.0,  # Maximum preference for highways (0.0-1.0)
                 "use_tolls": 1.0,     # Allow toll roads without penalty
                 "use_trails": 0.0,    # Avoid trails completely (0.0-1.0)
                 "exclude_unpaved": True,  # Explicitly exclude unpaved roads when possible
-                
                 # Surface type penalties - higher values avoid these surfaces
                 "surface_factor": 0.5,  # Factor that penalizes roads based on surface type
                 # Hierarchy factor - higher value (0-1) prefers higher-class roads
@@ -83,8 +81,8 @@ def process_chunk_with_valhalla(chunk, valhalla_url="http://valhalla:8002/trace_
             "search_radius": 100,  # Increased search radius
             "gps_accuracy": 3.0,  # Reduced further to trust road network more than GPS points
             "interpolation_distance": 10,  # Increased for smoother path
-            "max_route_distance_factor": 4,  # Allow reasonable route distances
-            "max_route_time_factor": 4,
+            "max_route_distance_factor": 10,  # Allow reasonable route distances
+            "max_route_time_factor": 10,
             "breakage_distance": 2000,  # Increased to avoid track fragmentation
             "max_search_radius": 250,  # Increased to find better roads
             "filter_action": "include",
