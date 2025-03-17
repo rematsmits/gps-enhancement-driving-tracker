@@ -72,7 +72,7 @@ def process_chunk_with_valhalla(chunk, valhalla_url="http://valhalla:8002/trace_
                 "use_trails": 0.0,    # Avoid trails completely (0.0-1.0)
                 "exclude_unpaved": True,  # Explicitly exclude unpaved roads when possible
                 # Surface type penalties - higher values avoid these surfaces
-                "surface_factor": 0.5,  # Factor that penalizes roads based on surface type
+                "surface_factor": 0.7,  # Factor that penalizes roads based on surface type
                 # Hierarchy factor - higher value (0-1) prefers higher-class roads
                 "hierarchy_factor": 0.8  # Strongly prefer major roads over minor ones
             }
