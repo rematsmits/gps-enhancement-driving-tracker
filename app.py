@@ -6,7 +6,6 @@ from werkzeug.utils import secure_filename
 import xml.etree.ElementTree as ET
 
 # Import services
-from services.interpolator import safe_datetime
 from services.track_processor import prepare_track_for_template, process_gpx_workflow
 
 app = Flask(__name__)
@@ -35,17 +34,14 @@ def index():
                                   track=track_data_for_template,
                                   track_json=track_json,
                                   message="No file selected.")
-        
-        # Check if map matching should be skipped
-        skip_map_matching = 'skip_map_matching' in request.form
-        
+
         try:
             # Read GPX file content
             gpx_contents = file.read().decode('utf-8', errors='ignore')
             
             # Process the GPX file through our workflow
             success, message, gpx_xml, track_points, track_data, _ = process_gpx_workflow(
-                gpx_contents, safe_datetime, skip_map_matching
+                gpx_contents
             )
             
             if success:

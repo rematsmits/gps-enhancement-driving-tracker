@@ -1,5 +1,9 @@
 import logging
-from services.interpolator import smooth_track, interpolate_track, format_time_for_js
+
+from functions.safe_datetime import safe_datetime
+
+from services.interpolator import interpolate_track, format_time_for_js
+from services.points_smoother import ekf_smooth_track, smooth_track
 from services.track_chunks_processor import chunk_track, connect_processed_chunks
 from services.valhalla_adapter import process_chunk_with_valhalla
 from services.gpx_processor import build_gpx_from_coords, parse_gpx_file
@@ -30,17 +34,36 @@ def prepare_track_for_template(track_points):
         
     return result
 
-def process_track(track, use_map_matching=True):
-    """Process a track with smoothing, interpolation and optional map matching"""
-    # Apply smoothing and interpolation 
-    smoothed = smooth_track(track, window=3)
+def process_track(track):
+    """
+    Process a track with smoothing, interpolation and optional map matching
+    
+    Args:
+        track: List of track points as dicts with lat, lon, time
+        use_map_matching: Whether to perform map matching with Valhalla
+        use_ekf: Whether to use Extended Kalman Filter (True) or moving average (False) for smoothing
+    
+    Returns:
+        List of processed track coordinates as (lat, lon) tuples
+    """
+    # Use EKF smoothing
+    # track_coords = [(point['lat'], point['lon']) for point in track]
+    # smoothed_coords = ekf_smooth_track(track_coords)
+    # smoothed = []
+    # for i, (lat, lon) in enumerate(smoothed_coords):
+    #     # Make sure we stay within bounds of the original track
+    #     orig_idx = min(i, len(track) - 1)
+    #     smoothed.append({
+    #         'lat': lat,
+    #         'lon': lon,
+    #         'time': track[orig_idx].get('time')
+    #     })
+
+    # Use moving everages filter
+    smoothed = smooth_track(track)
     
     # More aggressive interpolation for denser points
-    processed_points = interpolate_track(smoothed, max_time_gap=0.5)
-    
-    # If not using map matching, return the processed points as coordinates
-    if not use_map_matching:
-        return [(p["lat"], p["lon"]) for p in processed_points]
+    processed_points = interpolate_track(smoothed)
     
     # Split into chunks and process with Valhalla
     chunks = chunk_track(processed_points)
@@ -70,10 +93,23 @@ def process_track(track, use_map_matching=True):
     
     # Connect the processed chunks
     matched_track = connect_processed_chunks(processed_chunks)
+
+    # Use EKF smoothing
+    # track_coords = [(point['lat'], point['lon']) for point in matched_track]
+    # smoothed_coords = ekf_smooth_track(track_coords)
+    # smoothed_matched_track = []
+    # for i, (lat, lon) in enumerate(smoothed_coords):
+    #     # Make sure we stay within bounds of the original track
+    #     orig_idx = min(i, len(matched_track) - 1)
+    #     smoothed_matched_track.append({
+    #         'lat': lat,
+    #         'lon': lon,
+    #         'time': matched_track[orig_idx].get('time')
+    #     })
     
     return matched_track
 
-def process_gpx_workflow(gpx_contents, safe_datetime_func, skip_map_matching=False):
+def process_gpx_workflow(gpx_contents):
     """
     Complete workflow for processing a GPX file
     
@@ -81,6 +117,7 @@ def process_gpx_workflow(gpx_contents, safe_datetime_func, skip_map_matching=Fal
         gpx_contents: String containing GPX file contents
         safe_datetime_func: Function to safely handle datetime objects
         skip_map_matching: Whether to skip map matching
+        use_ekf: Whether to use Extended Kalman Filter for smoothing (vs. moving average)
         
     Returns:
         tuple: (success, message, gpx_xml, track_points, track_data_for_template, track_json)
@@ -93,28 +130,26 @@ def process_gpx_workflow(gpx_contents, safe_datetime_func, skip_map_matching=Fal
     """
     try:
         # Parse the GPX file
-        raw_points = parse_gpx_file(gpx_contents, safe_datetime_func)
+        raw_points = parse_gpx_file(gpx_contents, safe_datetime)
         
         if not raw_points:
             return False, "No track points found in GPX.", None, None, [], "{}"
         
         # Process the track
-        matched_coords = process_track(raw_points, use_map_matching=not skip_map_matching)
+        matched_coords = process_track(raw_points)
         
         if not matched_coords:
             return False, "Processing failed. Try the 'Skip map matching' option.", None, None, [], "{}"
         
         # Build GPX from processed coordinates
         gpx_xml, track_points = build_gpx_from_coords(
-            matched_coords, raw_points, skip_map_matching
+            matched_coords, raw_points
         )
         
         # Prepare data for template
         track_data = prepare_track_for_template(track_points)
         
-        # Determine success message
-        mode_message = "Original GPS data" if skip_map_matching else "Map-matched data"
-        success_message = f"Track processed successfully! Using {mode_message}."
+        success_message = f"Track processed successfully!"
         
         # Return all needed data
         return True, success_message, gpx_xml, track_points, track_data, None
