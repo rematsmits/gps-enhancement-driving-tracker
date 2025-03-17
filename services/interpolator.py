@@ -1,7 +1,5 @@
 import datetime
 from functions.haversine import haversine
-from functions.safe_datetime import safe_datetime
-from functions.js_date_format import format_time_for_js
 
 # Linear interpolation to insert additional points if gaps are large
 def interpolate_track(points, max_time_gap=0.1, max_dist=0.5):
