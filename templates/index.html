@@ -3,43 +3,84 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>GPX motorsports data analyzer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Motorsports GPX track analyzer</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
 </head>
 <body>
-  <h1>Phone GPS Motorsports Track Enhancer and Analyzer</h1>
+  <div class="container">
+    <div class="sidebar">
+      <h1>Motorsports phone GPS performance analyzer</h1>
 
-  <form method="POST" enctype="multipart/form-data">
-    <p>Select a GPX file to upload and process:</p>
-    <input type="file" name="gpx_file" accept=".gpx" required />
-    <button type="submit">Upload and Process</button>
-  </form>
+      {% if message %}
+        <div id="alertWarning" class="alert alert-warning" style="display: block;">
+          <em>{{ message }}</em>
+        </div>
+      {% endif %}
 
-  {% if track and track|length > 0 %}
-    <div id="map"></div>
-    <p class="info">
-      Click on the map to set a <strong>start</strong> point and an <strong>end</strong> point on the track 
-      for measurement. You can then see the distance, time, and speed for that segment.
-    </p>
-    <p class="info" id="measure-result"></p>
-    <div class="action-buttons">
-      <a href="{{ url_for('download') }}" class="btn">Download Corrected GPX</a>
-      <button id="save-markers-btn" class="btn">Save Markers</button>
-      <button id="clear-markers-btn" class="btn">Clear Markers</button>
+      <form method="POST" enctype="multipart/form-data">
+        <div class="form-group">
+          <p>Select a GPX file to upload and process:</p>
+          <input type="file" name="gpx_file" accept=".gpx" required />
+        </div>
+
+        <div class="form-group">
+          <button type="submit">Upload and Process</button>
+          <progress id="upload_progress" max="100" value="0"></progress>
+        </div>
+      </form>
+
+      {% if track and track|length > 0 %}
+        <div class="track-info" id="trackInfo">
+          <h3>Track Information</h3>
+          <div id="trackDetails">
+            <p>Total Points: <span id="totalPoints">{{ track|length if track else 0 }}</span></p>
+            <p>Length: <span id="trackLength">0</span> km</p>
+            <p>Max Speed: <span id="maxSpeed">0</span> km/h</p>
+            <p>Avg Speed: <span id="avgSpeed">0</span> km/h</p>
+          </div>
+        </div>
+
+        <div class="measurement-info" id="measurementInfo">
+          <div id="marker-alerts" style="display: none;">
+            <div id="alertWarning" class="alert alert-danger" style="display: block;">
+              <em id="marker-alert-text">{{ message }}</em>
+            </div>
+          </div>
+
+          <h3>Marker measurements</h3>
+          <small class="info">
+            Click on the map to set a <strong>start</strong> point and an <strong>end</strong> point on the track.
+          </small>
+
+          <div>
+            <p>Distance: <span id="segmentDistance">0</span> km</p>
+            <p>Time: <span id="segmentTime">0</span></p>
+            <p>Avg Speed: <span id="segmentAvgSpeed">0</span> km/h</p>
+          </div>
+
+          <div class="action-buttons">
+            <button id="save-markers-btn" class="btn">Save Markers</button>
+            <button id="clear-markers-btn" class="btn">Clear Markers</button>
+          </div>
+        </div>
+        
+        <div class="spacer"></div>
+      
+        <div class="action-buttons">
+          <button href="{{ url_for('download') }}" class="btn">Download Processed GPX</button>
+        </div>
+      {% endif %}
     </div>
-    <div>
-      <button onclick="toggleDebug()">Toggle Debug Info</button>
-      <div id="debug-info" class="debug"></div>
+    
+    <div id="mapContainer">
+      <div id="map"></div>
+      <div id="speedInfo" class="speed-info">
+        Speed: <span id="speedInfoField">0</span> km/h
+      </div>
     </div>
-  {% else %}
-    <div id="map" style="display: none;"></div>
-    <p class="info">Please upload a GPX file to process and view the track.</p>
-  {% endif %}
-
-  {% if message %}
-    <p><em>{{ message }}</em></p>
-  {% endif %}
+  </div>
 
   {% if track and track|length > 0 %}
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

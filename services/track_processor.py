@@ -1,12 +1,14 @@
 import logging
 
 from functions.safe_datetime import safe_datetime
+from functions.js_date_format import format_time_for_js
 
-from services.interpolator import interpolate_track, format_time_for_js
+from services.interpolator import interpolate_track
 from services.points_smoother import ekf_smooth_track, smooth_track
 from services.track_chunks_processor import chunk_track, connect_processed_chunks
 from services.valhalla_adapter import process_chunk_with_valhalla
 from services.gpx_processor import build_gpx_from_coords, parse_gpx_file
+from services.speed_processor import calculate_speeds, refine_points
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -29,6 +31,11 @@ def prepare_track_for_template(track_points):
                 point['time'] = format_time_for_js(pt['time'])
             except Exception:
                 pass
+        
+        # Add speed information if available
+        if pt.get('speed') is not None:
+            # Round speed to 1 decimal place to save space
+            point['speed'] = round(float(pt.get('speed')), 1)
                 
         result.append(point)
         
@@ -36,36 +43,24 @@ def prepare_track_for_template(track_points):
 
 def process_track(track):
     """
-    Process a track with smoothing, interpolation and optional map matching
+    Process a track with smoothing, interpolation, map matching, and speed calculation
     
     Args:
         track: List of track points as dicts with lat, lon, time
-        use_map_matching: Whether to perform map matching with Valhalla
-        use_ekf: Whether to use Extended Kalman Filter (True) or moving average (False) for smoothing
     
     Returns:
-        List of processed track coordinates as (lat, lon) tuples
+        List of processed track coordinates as dicts with lat, lon, time, speed
     """
-    # Use EKF smoothing
-    # track_coords = [(point['lat'], point['lon']) for point in track]
-    # smoothed_coords = ekf_smooth_track(track_coords)
-    # smoothed = []
-    # for i, (lat, lon) in enumerate(smoothed_coords):
-    #     # Make sure we stay within bounds of the original track
-    #     orig_idx = min(i, len(track) - 1)
-    #     smoothed.append({
-    #         'lat': lat,
-    #         'lon': lon,
-    #         'time': track[orig_idx].get('time')
-    #     })
-
-    # Use moving everages filter
-    smoothed = smooth_track(track)
+    # Step 1: Calculate initial speeds
+    track_with_speeds = calculate_speeds(track)
     
-    # More aggressive interpolation for denser points
+    # Step 2: Use moving average filter for position smoothing
+    smoothed = smooth_track(track_with_speeds)
+    
+    # Step 3: More aggressive interpolation for denser points
     processed_points = interpolate_track(smoothed)
     
-    # Split into chunks and process with Valhalla
+    # Step 4: Split into chunks and process with Valhalla
     chunks = chunk_track(processed_points)
     
     processed_chunks = []
@@ -76,6 +71,9 @@ def process_track(track):
 
         if matched_coords and len(matched_coords) >= 5:
             logger.info(f"Successfully processed chunk {i+1} with {len(matched_coords)} points")
+            # Convert tuples to dictionaries if necessary
+            if matched_coords and isinstance(matched_coords[0], tuple):
+                matched_coords = [{'lat': lat, 'lon': lon} for lat, lon in matched_coords]
             processed_chunks.append(matched_coords)
         else:
             logger.warning(f"Failed to process chunk {i+1}, will try again with smaller pieces")
@@ -89,71 +87,118 @@ def process_track(track):
                 for sub_chunk in sub_chunks:
                     sub_matched = process_chunk_with_valhalla(sub_chunk)
                     if sub_matched and len(sub_matched) >= 5:
+                        # Convert tuples to dictionaries if necessary
+                        if sub_matched and isinstance(sub_matched[0], tuple):
+                            sub_matched = [{'lat': lat, 'lon': lon} for lat, lon in sub_matched]
                         processed_chunks.append(sub_matched)
     
-    # Connect the processed chunks
+    # Step 5: Connect the processed chunks
     matched_track = connect_processed_chunks(processed_chunks)
-
-    # Use EKF smoothing
-    # track_coords = [(point['lat'], point['lon']) for point in matched_track]
-    # smoothed_coords = ekf_smooth_track(track_coords)
-    # smoothed_matched_track = []
-    # for i, (lat, lon) in enumerate(smoothed_coords):
-    #     # Make sure we stay within bounds of the original track
-    #     orig_idx = min(i, len(matched_track) - 1)
-    #     smoothed_matched_track.append({
-    #         'lat': lat,
-    #         'lon': lon,
-    #         'time': matched_track[orig_idx].get('time')
-    #     })
     
-    return matched_track
+    # Convert tuples to dictionaries if necessary
+    if matched_track and isinstance(matched_track[0], tuple):
+        matched_track = [{'lat': lat, 'lon': lon} for lat, lon in matched_track]
+    
+    # REMOVING EKF FILTERING
+    # Instead of applying EKF smoothing, we'll use the matched track directly
+    final_coords = matched_track
+    
+    # Ensure all points have time field (even if None)
+    for point in final_coords:
+        if 'time' not in point:
+            point['time'] = None  # Will be filled in build_gpx_from_coords
 
-def process_gpx_workflow(gpx_contents):
+    # Recalculate speeds for the final track
+    final_coords = calculate_speeds(final_coords)
+    
+    return final_coords
+
+def process_gpx_workflow(gpx_contents, return_raw_data=False):
     """
     Complete workflow for processing a GPX file
     
     Args:
         gpx_contents: String containing GPX file contents
-        safe_datetime_func: Function to safely handle datetime objects
-        skip_map_matching: Whether to skip map matching
-        use_ekf: Whether to use Extended Kalman Filter for smoothing (vs. moving average)
+        return_raw_data: Boolean, if True will return raw_points and processed_coords
         
     Returns:
-        tuple: (success, message, gpx_xml, track_points, track_data_for_template, track_json)
+        tuple: (success, message, gpx_xml, track_points, track_data_for_template, raw_points, processed_coords)
             - success: Boolean indicating if processing was successful
             - message: Status message for the user
-            - gpx_xml: Generated GPX XML string for download
+            - gpx_xml: Generated GPX XML string for download (None if return_raw_data=True)
             - track_points: List of processed track points
             - track_data_for_template: Formatted track data for the template
-            - track_json: JSON string of track data for the UI
+            - raw_points: Raw parsed points (only if return_raw_data=True)
+            - processed_coords: Processed coordinates (only if return_raw_data=True)
     """
     try:
         # Parse the GPX file
         raw_points = parse_gpx_file(gpx_contents, safe_datetime)
         
         if not raw_points:
-            return False, "No track points found in GPX.", None, None, [], "{}"
+            if return_raw_data:
+                return False, "No track points found in GPX.", None, None, [], None, None
+            else:
+                return False, "No track points found in GPX.", None, None, [], None
         
         # Process the track
-        matched_coords = process_track(raw_points)
+        processed_coords = process_track(raw_points)
         
-        if not matched_coords:
-            return False, "Processing failed. Try the 'Skip map matching' option.", None, None, [], "{}"
+        if not processed_coords:
+            if return_raw_data:
+                return False, "Processing failed. Try again.", None, None, [], None, None
+            else:
+                return False, "Processing failed. Try again.", None, None, [], None
         
-        # Build GPX from processed coordinates
-        gpx_xml, track_points = build_gpx_from_coords(
-            matched_coords, raw_points
-        )
+        # Generate GPX XML only if not returning raw data
+        gpx_xml = None
+        if not return_raw_data:
+            # Build GPX from processed coordinates
+            gpx_xml, track_points = build_gpx_from_coords(
+                processed_coords, raw_points
+            )
+        else:
+            # Just get track points without building the full GPX XML
+            _, track_points = build_gpx_from_coords(
+                processed_coords, raw_points
+            )
+        
+        # Additional speed refinement
+        # Find indices with reliable speed data
+        known_speed_indices = []
+        for i, pt in enumerate(track_points):
+            # If point already has speed, consider it reliable
+            if pt.get('speed') is not None:
+                known_speed_indices.append(i)
+                
+        # If we have some speeds but not for all points, refine them
+        if known_speed_indices and len(known_speed_indices) < len(track_points):
+            # Use every point with time as an anchor
+            known_time_indices = [i for i, pt in enumerate(track_points) if pt.get('time')]
+            
+            # Refine the track with advanced time and speed interpolation
+            if known_time_indices:
+                track_points = refine_points(
+                    track_points, 
+                    known_time_indices, 
+                    known_speed_indices,
+                    chunk_size=4
+                )
         
         # Prepare data for template
         track_data = prepare_track_for_template(track_points)
         
-        success_message = f"Track processed successfully!"
+        success_message = f"Track processed successfully! EKF smoothing and speed calculations applied."
         
-        # Return all needed data
-        return True, success_message, gpx_xml, track_points, track_data, None
+        # Return all needed data, including raw data if requested
+        if return_raw_data:
+            return True, success_message, gpx_xml, track_points, track_data, raw_points, processed_coords
+        else:
+            return True, success_message, gpx_xml, track_points, track_data, None
         
     except Exception as e:
         logger.error(f"Error in GPX processing workflow: {str(e)}", exc_info=True)
-        return False, f"Error processing file: {str(e)}", None, None, [], "{}"
+        if return_raw_data:
+            return False, f"Error processing file: {str(e)}", None, None, [], None, None
+        else:
+            return False, f"Error processing file: {str(e)}", None, None, [], None

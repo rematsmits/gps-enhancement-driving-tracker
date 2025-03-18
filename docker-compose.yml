@@ -47,5 +47,6 @@ services:
       - valhalla
     environment:
       - FLASK_ENV=development
+      - SECRET_KEY=mrkj34ut4398ht3h2fh3iqfio4gji352j9t34jqtfgieqrwjoifg
     volumes:
       - .:/app

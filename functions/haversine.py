@@ -12,6 +12,9 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
     return R * c
 
+# Alias for compatibility with the provided refine_points code
+# haversine_distance = haversine
+
 def haversine_distance(lat1, lon1, lat2, lon2):
     """
     Calculate the great-circle distance between two lat/lon points (in meters)

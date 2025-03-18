@@ -4,17 +4,32 @@ from functions.haversine import haversine
 def ekf_smooth_track(matched_points, init_velocity=(0, 0)):
     """
     Smooth a sequence of matched GPS points using an Extended Kalman Filter.
-    :param matched_points: list of (lat, lon) coordinates (projected to planar coords for filtering).
+    :param matched_points: list of (lat, lon) coordinates or list of dicts with 'lat' and 'lon' keys.
     :param init_velocity: initial guess for velocity (vx, vy).
     :return: list of smoothed (lat, lon) coordinates.
     """
+    # Check input format and extract lat/lon
+    is_dict_format = False
+    if matched_points and isinstance(matched_points[0], dict):
+        is_dict_format = True
+        first_point = matched_points[0]
+        origin_lat, origin_lon = first_point['lat'], first_point['lon']
+    else:
+        origin_lat, origin_lon = matched_points[0]
+    
     # Convert lat/lon to x,y (e.g., using equirectangular projection around first point for simplicity)
     # This is a simple linear approximation suitable for small areas.
-    origin_lat, origin_lon = matched_points[0]
     deg_to_m = 111320  # approximate conversion for degrees to meters (at equator, adjust by cos(lat) for lon)
-    coords = [((lat - origin_lat) * deg_to_m,
-               (lon - origin_lon) * deg_to_m * np.cos(np.radians(origin_lat)))
-              for lat, lon in matched_points]
+    
+    # Extract coordinates based on input format
+    if is_dict_format:
+        coords = [((point['lat'] - origin_lat) * deg_to_m,
+                  (point['lon'] - origin_lon) * deg_to_m * np.cos(np.radians(origin_lat)))
+                 for point in matched_points]
+    else:
+        coords = [((lat - origin_lat) * deg_to_m,
+                  (lon - origin_lon) * deg_to_m * np.cos(np.radians(origin_lat)))
+                 for lat, lon in matched_points]
 
     # Kalman filter initialization
     dt = 1.0  # time step (will be adjusted later if actual timestamps available)
@@ -53,12 +68,23 @@ def ekf_smooth_track(matched_points, init_velocity=(0, 0)):
         P = (np.eye(4) - K.dot(H)).dot(P)  # update covariance
 
         smooth_coords.append((x[0], x[1]))
+        
     # Convert filtered coordinates back to lat/lon
-    smooth_latlon = [
-        (lat / deg_to_m + origin_lat,
-         lon / (deg_to_m * np.cos(np.radians(origin_lat))) + origin_lon)
-        for lat, lon in smooth_coords
-    ]
+    if is_dict_format:
+        # Return as dictionaries if input was dictionaries
+        smooth_latlon = [
+            {'lat': (lat / deg_to_m + origin_lat),
+             'lon': (lon / (deg_to_m * np.cos(np.radians(origin_lat))) + origin_lon)}
+            for lat, lon in smooth_coords
+        ]
+    else:
+        # Return as tuples if input was tuples
+        smooth_latlon = [
+            (lat / deg_to_m + origin_lat,
+             lon / (deg_to_m * np.cos(np.radians(origin_lat))) + origin_lon)
+            for lat, lon in smooth_coords
+        ]
+        
     return smooth_latlon
 
 # Simple moving-average smoothing for a sequence of latitude/longitude points

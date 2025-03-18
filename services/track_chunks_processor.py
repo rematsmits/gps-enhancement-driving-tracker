@@ -48,11 +48,26 @@ def connect_processed_chunks(chunks):
         p1 = connected[-1]  # Last point of current track
         p2 = chunks[i][0]  # First point of next chunk
         
+        # Extract lat/lon based on point format (dict or tuple)
+        if isinstance(p1, dict):
+            p1_lat, p1_lon = p1['lat'], p1['lon']
+        else:
+            p1_lat, p1_lon = p1[0], p1[1]
+            
+        if isinstance(p2, dict):
+            p2_lat, p2_lon = p2['lat'], p2['lon']
+        else:
+            p2_lat, p2_lon = p2[0], p2[1]
+        
         # Calculate distance between endpoints
-        dist = haversine(p1[0], p1[1], p2[0], p2[1])
+        dist = haversine(p1_lat, p1_lon, p2_lat, p2_lon)
         
         # Log the connection
         logger.info(f"Connecting chunks {i-1} and {i} (distance: {dist:.1f}m)")
+        
+        # Check if we need to convert between dict and tuple
+        is_p1_dict = isinstance(p1, dict)
+        is_p2_dict = isinstance(p2, dict)
         
         # If endpoints are very close (within 10m), skip the first point of next chunk
         if dist < 10:
@@ -60,10 +75,15 @@ def connect_processed_chunks(chunks):
         # For moderate gaps (10-80m), add a single midpoint to smooth the transition
         elif dist < 80:
             # Add a single midpoint halfway between
-            midpoint = (
-                (p1[0] + p2[0]) / 2, 
-                (p1[1] + p2[1]) / 2
-            )
+            mid_lat = (p1_lat + p2_lat) / 2
+            mid_lon = (p1_lon + p2_lon) / 2
+            
+            # Create midpoint in the same format as the connected track
+            if is_p1_dict:
+                midpoint = {'lat': mid_lat, 'lon': mid_lon}
+            else:
+                midpoint = (mid_lat, mid_lon)
+                
             connected.append(midpoint)
             connected.extend(chunks[i])
         # For all other cases, just append the next chunk directly

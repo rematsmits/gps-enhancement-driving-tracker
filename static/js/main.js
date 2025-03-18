@@ -1,11 +1,11 @@
 // Debug functions
 function debugLog(msg) {
-  const debugEl = document.getElementById('debug-info');
-  debugEl.innerHTML += msg + '<br>';
-  console.log(msg); // Also log to console for developer debugging
+  // const debugEl = document.getElementById('debug-info');
+  // debugEl.innerHTML += msg + '<br>';
+  // console.log(msg); // Also log to console for developer debugging
   
   // Make debug visible by default during troubleshooting
-  document.getElementById('debug-info').style.display = 'block';
+  // document.getElementById('debug-info').style.display = 'block';
 }
 
 function toggleDebug() {
@@ -228,12 +228,7 @@ function updateMeasurements() {
       debugLog(`Error calculating time: ${e.message}`);
       hasTime = false;
     }
-  } else {
-    debugLog('Time data not available for both points');
-  }
-  
-  // Display results
-  var resultText = "Distance: " + (totalDist/1000).toFixed(3) + " km<br/>";
+  } 
   
   if (hasTime && dtSec > 0) {
     // Format time as mm:ss.ms with 0.1 second precision
@@ -249,22 +244,19 @@ function updateMeasurements() {
     
     const timeDisplay = `${formattedMinutes}:${formattedSeconds}.${formattedTenthsOfSecond}`;
     
-    resultText += "Duration: " + timeDisplay + "<br/>";
-    
-    var speed = (totalDist/1000) / (dtSec/3600);
-    
-    // Add a sanity check for unrealistic speeds (over 150 km/h)
-    if (speed > 150) {
-      debugLog(`Warning: Calculated speed (${speed.toFixed(2)} km/h) seems unrealistic.`);
-      resultText += "Average Speed: " + speed.toFixed(2) + " km/h (unrealistic value!)";
-    } else {
-      resultText += "Average Speed: " + speed.toFixed(2) + " km/h";
-    }
+    var avgSpeed = (totalDist/1000) / (dtSec/3600);
+
+    document.getElementById('segmentDistance').innerHTML = (totalDist / 1000).toFixed(3);
+    document.getElementById('segmentTime').innerHTML = timeDisplay;
+    document.getElementById('segmentAvgSpeed').innerHTML = avgSpeed.toFixed(2);
   } else {
-    resultText += "Time data not available";
+    document.getElementById('segmentDistance').innerHTML = 0;
+    document.getElementById('segmentTime').innerHTML = 0;
+    document.getElementById('segmentAvgSpeed').innerHTML = 0;
+
+    document.getElementById('marker-alerts').style.display = 'block';
+    document.getElementById('marker-alert-text').innerHTML = 'No data found, check processed data';
   }
-  
-  document.getElementById('measure-result').innerHTML = resultText;
 }
 
 // Click event to place markers

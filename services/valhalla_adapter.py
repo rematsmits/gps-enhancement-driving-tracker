@@ -1,14 +1,14 @@
 import logging
 import requests
 import traceback
-from services.interpolator import format_time_for_js
+from functions.js_date_format import format_time_for_js
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 # Decode polyline from Valhalla response
 def decode_polyline(encoded):
-    """Decode a Valhalla polyline to a list of lat/lon coordinates"""
+    """Decode a Valhalla polyline to a list of lat/lon coordinates as dictionaries"""
     coords = []
     index = 0
     lat = 0
@@ -37,7 +37,7 @@ def decode_polyline(encoded):
             if b < 0x1f:
                 break
         lon += ~(result >> 1) if (result & 1) else (result >> 1)
-        coords.append((lat * 1e-6, lon * 1e-6))
+        coords.append({'lat': lat * 1e-6, 'lon': lon * 1e-6})
     return coords
 
 # Process a single chunk with Valhalla
@@ -53,11 +53,10 @@ def process_chunk_with_valhalla(chunk, valhalla_url="http://valhalla:8002/trace_
     # Enhanced request payload specifically requesting shape
     request_payload = {
         "costing": "auto",
-        "shape_match": "walk_or_snap",  # Changed from map_snap to map_match for stricter road adherence
+        "shape_match": "map_snap",  # Changed from map_snap to map_match for stricter road adherence
         "shape": shape,
         "filters": {
-            "attributes": ["shape", "edge.way_id", "edge.names", "edge.id", "edge.weighted_grade", 
-                          "matched_point.type", "matched_point.edge_index", "edge.surface"],
+            "attributes": ["shape", "edge.way_id", "edge.names", "edge.id", "edge.weighted_grade", "edge.surface"],
             "action": "include"
         },
         "costing_options": {
@@ -93,26 +92,63 @@ def process_chunk_with_valhalla(chunk, valhalla_url="http://valhalla:8002/trace_
     try:
         # Make the request
         headers = {"Content-Type": "application/json"}
+        logger.info(f"Sending request to Valhalla with {len(shape)} points")
+        
+        # Log a sample of the payload for debugging
+        logger.debug(f"Request shape_match: {request_payload['shape_match']}")
+        logger.debug(f"Request filters: {request_payload['filters']}")
+        
         res = requests.post(valhalla_url, json=request_payload, headers=headers, timeout=300)
         
         if res.status_code != 200:
-            logger.error(f"Valhalla error: {res.text}")
+            logger.error(f"Valhalla error: {res.status_code} - {res.text}")
+            # If the server is unavailable, return original points rather than failing
+            if res.status_code in [502, 503, 504]:
+                logger.warning("Valhalla server unavailable, using original points")
+                return chunk  # Return original chunk with all data preserved
             return None
         
         # Parse response
-        data = res.json()
+        try:
+            data = res.json()
+        except ValueError as e:
+            logger.error(f"Failed to parse Valhalla response: {str(e)}")
+            logger.debug(f"Response content: {res.text[:200]}...")  # Log first 200 chars
+            return chunk  # Return original chunk with all data preserved
+            
         logger.info(f"Response keys: {list(data.keys())}")
+        
+        # If response contains any warnings, log them
+        if "warnings" in data:
+            logger.warning(f"Valhalla warnings: {data['warnings']}")
+            
+        # If there are any error messages, log them
+        if "error_message" in data:
+            logger.error(f"Valhalla error message: {data['error_message']}")
+            if "error" in data:
+                logger.error(f"Valhalla error code: {data['error']}")
+            return chunk  # Return original chunk with all data preserved
         
         # Extract the matched points from trace_attributes response
         if "matched_points" in data:
             matched_points = data["matched_points"]
             logger.info(f"Found {len(matched_points)} matched points")
             
-            # Extract coordinates from matched points
+            # Extract coordinates from matched points as dictionaries
             matched_coords = []
-            for point in matched_points:
+            for i, point in enumerate(matched_points):
                 if "lat" in point and "lon" in point:
-                    matched_coords.append((point["lat"], point["lon"]))
+                    # Create a dictionary with lat/lon and preserve time and speed from original point if available
+                    new_point = {"lat": point["lat"], "lon": point["lon"]}
+                    
+                    # If we have original points with the same array length, preserve time and speed
+                    if i < len(chunk):
+                        if 'time' in chunk[i]:
+                            new_point['time'] = chunk[i]['time']
+                        if 'speed' in chunk[i]:
+                            new_point['speed'] = chunk[i]['speed']
+                    
+                    matched_coords.append(new_point)
             
             if matched_coords and len(matched_coords) > len(chunk) * 0.3:  # Ensure we got enough matched points
                 logger.info(f"Extracted {len(matched_coords)} coordinates from matched points")
@@ -125,6 +161,8 @@ def process_chunk_with_valhalla(chunk, valhalla_url="http://valhalla:8002/trace_
             
             # Check if shape has enough points
             if len(shape) > 10:
+                # Try to transfer time and speed data from original points where possible
+                # This is more challenging because the shape may not match 1:1 with original points
                 return shape
             
         # If no shape with enough points, try edges
@@ -145,10 +183,9 @@ def process_chunk_with_valhalla(chunk, valhalla_url="http://valhalla:8002/trace_
                 logger.info(f"Extracted {len(all_points)} points from edges")
                 return all_points
 
-        # Fall back to using original points, but don't sample as aggressively
+        # Fall back to using original points, preserving all data
         logger.warning("Could not extract route from Valhalla, using original points")
-        # No sampling - keep all points to ensure density for better visualization
-        return [(p["lat"], p["lon"]) for p in chunk]
+        return chunk
         
     except Exception as e:
         logger.error(f"Error processing chunk: {str(e)}")
