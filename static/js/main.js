@@ -470,7 +470,6 @@ map.on('click', function(e) {
     endMarker = null;
     startIndex = null;
     endIndex = null;
-    document.getElementById('measure-result').innerHTML = "";
     debugLog('Markers reset');
     
     // Place a new start marker at this click
