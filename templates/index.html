@@ -35,7 +35,8 @@
         <div class="track-info" id="trackInfo">
           <h3>Track Information</h3>
           <div id="trackDetails">
-            <p>Total Points: <span id="totalPoints">{{ track|length if track else 0 }}</span></p>
+            <p>Original Points: <span id="originalPoints">{{ original_points }}</span></p>
+            <p>Processed Points: <span id="processedPoints">{{ track|length if track else 0 }}</span></p>
             <p>Length: <span id="trackLength">0</span> km</p>
             <p>Max Speed: <span id="maxSpeed">0</span> km/h</p>
             <p>Avg Speed: <span id="avgSpeed">0</span> km/h</p>
@@ -58,11 +59,14 @@
             <p>Distance: <span id="segmentDistance">0</span> km</p>
             <p>Time: <span id="segmentTime">0</span></p>
             <p>Avg Speed: <span id="segmentAvgSpeed">0</span> km/h</p>
+            <p>Speed at marker: <span id="speedAtMarker">0</span> km/h</p>
           </div>
 
           <div class="action-buttons">
-            <button id="save-markers-btn" class="btn">Save Markers</button>
-            <button id="clear-markers-btn" class="btn">Clear Markers</button>
+            <button id="speed-marker-btn" class="btn">Place Speed Marker</button>
+            <button id="clear-speed-marker-btn" class="btn">Clear Speed Marker</button>
+            <button id="save-markers-btn" class="btn">Save All Markers</button>
+            <button id="clear-markers-btn" class="btn">Clear All Markers</button>
           </div>
         </div>
         

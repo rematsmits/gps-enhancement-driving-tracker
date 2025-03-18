@@ -114,13 +114,46 @@ progress {
 }
 .speed-info {
   position: absolute;
-  bottom: 20px;
-  right: 20px;
-  background: white;
+  bottom: 10px;
+  right: 10px;
   padding: 8px 12px;
+  background-color: white;
+  border: 1px solid red;
   border-radius: 4px;
-  box-shadow: 0 0 10px rgba(0,0,0,0.1);
-  font-size: 0.9rem;
+  font-weight: bold;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
   z-index: 1000;
   display: none;
+}
+
+/* Style for active button state */
+.btn.active {
+  background-color: #c33;
+  color: white;
+}
+
+/* Add styles for save speed marker button */
+#save-speed-marker-btn {
+  margin-left: 5px;
+}
+
+#save-speed-marker-btn.saved {
+  background-color: #4caf50; /* Green background for saved state */
+  color: white;
+}
+
+/* Improve button spacing */
+.action-buttons .btn {
+  margin-right: 5px;
+  margin-bottom: 5px;
+}
+
+#speed-marker-btn {
+  background-color: #4a6baf; /* Blue background for speed marker button */
+  color: white;
+}
+
+#clear-speed-marker-btn {
+  background-color: #d9534f; /* Red background for clear speed marker button */
+  color: white;
 }

@@ -2,7 +2,7 @@
 function debugLog(msg) {
   // const debugEl = document.getElementById('debug-info');
   // debugEl.innerHTML += msg + '<br>';
-  // console.log(msg); // Also log to console for developer debugging
+  console.log(msg); // Always log to console for debugging
   
   // Make debug visible by default during troubleshooting
   // document.getElementById('debug-info').style.display = 'block';
@@ -81,8 +81,14 @@ if (latlngs.length > 0) {
 }
 
 // Marker variables
-var startMarker = null, endMarker = null;
-var startIndex = null, endIndex = null;
+var startMarker = null;
+var endMarker = null;
+var startIndex = null;
+var endIndex = null;
+var speedMarker = null; // New variable for speed marker
+var speedMarkerIndex = null; // Index of speed marker
+var speedMarkerActive = false; // Flag for speed marker placement mode
+var speedMarkerSaved = false; // Track if speed marker is saved
 
 // Function to find nearest track point index for given lat,lng (simple linear search)
 function findNearestPoint(lat, lng) {
@@ -104,23 +110,44 @@ function findNearestPoint(lat, lng) {
 
 // Function to store markers in localStorage
 function saveMarkers() {
+  // Create an object to hold marker data
+  const markerData = {};
+  let hasMarkers = false;
+  
+  // Save start and end markers if they exist
   if (startMarker && endMarker) {
-    // Save only marker coordinates, not indices
-    const markerData = {
-      start: {
-        lat: startMarker.getLatLng().lat,
-        lng: startMarker.getLatLng().lng
-      },
-      end: {
-        lat: endMarker.getLatLng().lat,
-        lng: endMarker.getLatLng().lng
-      }
+    markerData.start = {
+      lat: startMarker.getLatLng().lat,
+      lng: startMarker.getLatLng().lng
     };
+    
+    markerData.end = {
+      lat: endMarker.getLatLng().lat,
+      lng: endMarker.getLatLng().lng
+    };
+    
+    hasMarkers = true;
+  }
+  
+  // Also save speed marker if it exists
+  if (speedMarker) {
+    markerData.speed = {
+      lat: speedMarker.getLatLng().lat,
+      lng: speedMarker.getLatLng().lng,
+      value: speedMarker.speedValue || 0
+    };
+    
+    speedMarkerSaved = true;
+    hasMarkers = true;
+    debugLog('Speed marker saved with coordinates');
+  }
+  
+  if (hasMarkers) {
     localStorage.setItem('savedMarkers', JSON.stringify(markerData));
-    debugLog('Markers saved to localStorage (coordinate-based)');
-    alert('Markers saved!');
+    debugLog('All markers saved to localStorage');
+    alert('All markers saved!');
   } else {
-    alert('Please set both start and end markers before saving');
+    alert('Please place at least one marker before saving');
   }
 }
 
@@ -153,6 +180,55 @@ function loadMarkers() {
           debugLog(`Restored end marker at coordinates ${markerData.end.lat}, ${markerData.end.lng}`);
         }
         
+        // Load speed marker if saved
+        if (markerData.speed) {
+          const speedPointIndex = findNearestPoint(markerData.speed.lat, markerData.speed.lng);
+          const speedCoord = latlngs[speedPointIndex];
+          // Create a speed marker icon
+          const speedIcon = L.icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowSize: [41, 41]
+          });
+          
+          speedMarker = L.marker(speedCoord, {
+            icon: speedIcon,
+            draggable: false,
+            title: 'Speed Marker'
+          }).addTo(map);
+          
+          speedMarkerIndex = speedPointIndex;
+          
+          // Get the speed at this point
+          let speed = 0;
+          if (trackPoints[speedPointIndex] && typeof trackPoints[speedPointIndex].speed !== 'undefined') {
+            speed = trackPoints[speedPointIndex].speed;
+          } else if (markerData.speed.value) {
+            speed = markerData.speed.value;
+          }
+          
+          speedMarker.speedValue = speed;
+          
+          // Update speed display
+          const speedInfoEl = document.getElementById('speedInfo');
+          const speedValueEl = document.getElementById('speedInfoField');
+          
+          if (speedInfoEl && speedValueEl) {
+            speedValueEl.innerText = speed.toFixed(1);
+            speedInfoEl.style.display = 'block';
+            debugLog(`Restored speed marker with value ${speed.toFixed(1)}`);
+          }
+          
+          // Add popup to marker showing speed
+          speedMarker.bindPopup(`Speed: ${speed.toFixed(1)} km/h`).openPopup();
+          
+          // Mark as saved
+          speedMarkerSaved = true;
+        }
+        
         // Update measurements if both markers exist
         if (startMarker && endMarker) {
           updateMeasurements();
@@ -169,15 +245,110 @@ function loadMarkers() {
 // Function to clear saved markers
 function clearMarkers() {
   localStorage.removeItem('savedMarkers');
+  
+  // Clear and remove start/end markers
   if (startMarker) map.removeLayer(startMarker);
   if (endMarker) map.removeLayer(endMarker);
   startMarker = null;
   endMarker = null;
   startIndex = null;
   endIndex = null;
+  
+  // Clear and remove speed marker
+  if (speedMarker) {
+    map.removeLayer(speedMarker);
+    speedMarker = null;
+    speedMarkerIndex = null;
+    speedMarkerSaved = false;
+    
+    // Hide speed info display
+    document.getElementById('speedInfo').style.display = 'none';
+  }
+  
   document.getElementById('measure-result').innerHTML = "";
-  debugLog('Markers cleared');
-  alert('Markers cleared!');
+  debugLog('All markers cleared');
+  alert('All markers cleared!');
+}
+
+// Function to toggle speed marker mode
+function toggleSpeedMarker() {
+  // Toggle the state
+  speedMarkerActive = !speedMarkerActive;
+  
+  debugLog(`Speed marker mode ${speedMarkerActive ? 'activated' : 'deactivated'}`);
+  
+  // Update button appearance
+  const speedMarkerBtn = document.getElementById('speed-marker-btn');
+  if (speedMarkerActive) {
+    speedMarkerBtn.classList.add('active');
+    speedMarkerBtn.innerText = 'Cancel Speed Marker';
+  } else {
+    speedMarkerBtn.classList.remove('active');
+    speedMarkerBtn.innerText = 'Place Speed Marker';
+  }
+}
+
+// Function to create or update speed marker
+function placeSpeedMarker(latlng) {
+  // Remove existing speed marker if any
+  if (speedMarker) {
+    map.removeLayer(speedMarker);
+  }
+  
+  // Find the closest point on the track
+  const idx = findNearestPoint(latlng.lat, latlng.lng);
+  const coord = latlngs[idx];
+  
+  debugLog(`Placing speed marker at index ${idx}, coordinates: ${coord}`);
+  
+  // Get the speed at this point
+  let speed = 0;
+  if (trackPoints[idx] && typeof trackPoints[idx].speed !== 'undefined') {
+    speed = trackPoints[idx].speed;
+    debugLog(`Found speed: ${speed} km/h at index ${idx}`);
+  } else {
+    debugLog(`No speed data found at index ${idx}`);
+  }
+  
+  // Create a custom icon with different color for speed marker
+  const speedIcon = L.icon({
+    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    popupAnchor: [1, -34],
+    shadowSize: [41, 41]
+  });
+  
+  // Create the speed marker
+  speedMarker = L.marker(coord, {
+    icon: speedIcon,
+    draggable: false,
+    title: 'Speed Marker'
+  }).addTo(map);
+  
+  // Store the index and speed value
+  speedMarkerIndex = idx;
+  speedMarker.speedValue = speed;
+  
+  // Reset saved status
+  speedMarkerSaved = false;
+  
+  // Update speed display
+  const speedAtMarkerEl = document.getElementById('speedAtMarker');
+  
+  if (speedAtMarkerEl) {
+    speedAtMarkerEl.innerText = speed.toFixed(2);
+    debugLog(`Updated speed display with value ${speed.toFixed(1)}`);
+  } else {
+    debugLog('Error: Could not find speed info elements in DOM');
+  }
+  
+  // Add popup to marker showing speed
+  speedMarker.bindPopup(`Speed: ${speed.toFixed(1)} km/h`).openPopup();
+  
+  // Exit speed marker mode
+  toggleSpeedMarker();
 }
 
 // Function to update measurement display
@@ -228,7 +399,7 @@ function updateMeasurements() {
       debugLog(`Error calculating time: ${e.message}`);
       hasTime = false;
     }
-  } 
+  }
   
   if (hasTime && dtSec > 0) {
     // Format time as mm:ss.ms with 0.1 second precision
@@ -249,6 +420,8 @@ function updateMeasurements() {
     document.getElementById('segmentDistance').innerHTML = (totalDist / 1000).toFixed(3);
     document.getElementById('segmentTime').innerHTML = timeDisplay;
     document.getElementById('segmentAvgSpeed').innerHTML = avgSpeed.toFixed(2);
+    
+    document.getElementById('marker-alerts').style.display = 'none';
   } else {
     document.getElementById('segmentDistance').innerHTML = 0;
     document.getElementById('segmentTime').innerHTML = 0;
@@ -263,6 +436,13 @@ function updateMeasurements() {
 map.on('click', function(e) {
   if (latlngs.length === 0) {
     debugLog('No track points available for marking');
+    return;
+  }
+  
+  // Check if we're in speed marker mode
+  if (speedMarkerActive) {
+    debugLog(`Map clicked in speed marker mode at ${e.latlng.lat}, ${e.latlng.lng}`);
+    placeSpeedMarker(e.latlng);
     return;
   }
   
@@ -300,9 +480,72 @@ map.on('click', function(e) {
   }
 });
 
-// Set up buttons
-document.getElementById('save-markers-btn').addEventListener('click', saveMarkers);
-document.getElementById('clear-markers-btn').addEventListener('click', clearMarkers);
+// Function to clear just the speed marker
+function clearSpeedMarker() {
+  if (speedMarker) {
+    map.removeLayer(speedMarker);
+    speedMarker = null;
+    speedMarkerIndex = null;
+    speedMarkerSaved = false;
+    
+    // Hide speed info display
+    const speedInfoEl = document.getElementById('speedInfo');
+    if (speedInfoEl) {
+      speedInfoEl.style.display = 'none';
+    }
+    
+    debugLog('Speed marker cleared');
+    alert('Speed marker cleared!');
+  } else {
+    alert('No speed marker to clear');
+  }
+}
 
-// Try to load saved markers when the page loads
-loadMarkers();
+document.addEventListener('DOMContentLoaded', function() {
+  // Update the points display to show original and processed counts
+  const originalPointsEl = document.getElementById('originalPoints');
+  if (originalPointsEl && typeof originalPointCount !== 'undefined') {
+    originalPointsEl.innerText = originalPointCount;
+    debugLog(`Updated original points display to show: ${originalPointCount}`);
+  }
+  
+  const processedPointsEl = document.getElementById('processedPoints');
+  if (processedPointsEl) {
+    processedPointsEl.innerText = trackPoints.length;
+    debugLog(`Updated processed points display to show: ${trackPoints.length}`);
+  }
+  
+  // Set up speed marker button
+  const speedMarkerBtn = document.getElementById('speed-marker-btn');
+  if (speedMarkerBtn) {
+    speedMarkerBtn.addEventListener('click', toggleSpeedMarker);
+    debugLog('Added event listener to speed marker button');
+  } else {
+    debugLog('Warning: Could not find speed-marker-btn element');
+  }
+  
+  // Set up clear speed marker button
+  const clearSpeedMarkerBtn = document.getElementById('clear-speed-marker-btn');
+  if (clearSpeedMarkerBtn) {
+    clearSpeedMarkerBtn.addEventListener('click', clearSpeedMarker);
+    debugLog('Added event listener to clear speed marker button');
+  } else {
+    debugLog('Warning: Could not find clear-speed-marker-btn element');
+  }
+  
+  // Set up other buttons
+  const saveMarkersBtn = document.getElementById('save-markers-btn');
+  if (saveMarkersBtn) {
+    saveMarkersBtn.addEventListener('click', saveMarkers);
+    debugLog('Added event listener to save markers button');
+  }
+  
+  const clearMarkersBtn = document.getElementById('clear-markers-btn');
+  if (clearMarkersBtn) {
+    clearMarkersBtn.addEventListener('click', clearMarkers);
+    debugLog('Added event listener to clear markers button');
+  }
+  
+  // Try to load saved markers when the page loads
+  loadMarkers();
+});
