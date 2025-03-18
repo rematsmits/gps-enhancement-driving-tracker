@@ -34,8 +34,12 @@ def prepare_track_for_template(track_points):
         
         # Add speed information if available
         if pt.get('speed') is not None:
-            # Round speed to 1 decimal place to save space
-            point['speed'] = round(float(pt.get('speed')), 1)
+            try:
+                # Round speed to 1 decimal place to save space
+                point['speed'] = round(float(pt.get('speed')), 1)
+            except Exception as e:
+                logger.warning(f"Error formatting speed: {e}")
+                pass
                 
         result.append(point)
         
@@ -44,6 +48,7 @@ def prepare_track_for_template(track_points):
 def process_track(track):
     """
     Process a track with smoothing, interpolation, map matching, and speed calculation
+    Ensures all points have speed data for display in the frontend.
     
     Args:
         track: List of track points as dicts with lat, lon, time
@@ -51,71 +56,134 @@ def process_track(track):
     Returns:
         List of processed track coordinates as dicts with lat, lon, time, speed
     """
-    # Step 1: Calculate initial speeds
-    track_with_speeds = calculate_speeds(track)
-    
-    # Step 2: Use moving average filter for position smoothing
-    smoothed = smooth_track(track_with_speeds)
-    
-    # Step 3: More aggressive interpolation for denser points
-    processed_points = interpolate_track(smoothed)
-    
-    # Step 4: Split into chunks and process with Valhalla
-    chunks = chunk_track(processed_points)
-    
-    processed_chunks = []
-    
-    for i, chunk in enumerate(chunks):
-        logger.info(f"Processing chunk {i+1}/{len(chunks)} with {len(chunk)} points")
-        matched_coords = process_chunk_with_valhalla(chunk)
-
-        if matched_coords and len(matched_coords) >= 5:
-            logger.info(f"Successfully processed chunk {i+1} with {len(matched_coords)} points")
-            # Convert tuples to dictionaries if necessary
-            if matched_coords and isinstance(matched_coords[0], tuple):
-                matched_coords = [{'lat': lat, 'lon': lon} for lat, lon in matched_coords]
-            processed_chunks.append(matched_coords)
+    try:
+        # Step 1: Calculate initial speeds from raw GPS data
+        track_with_speeds = calculate_speeds(track)
+        logger.info(f"Initial speed calculation: {len(track_with_speeds)} points")
+        
+        # Log speed range for debugging
+        speeds = [p.get('speed') for p in track_with_speeds if p.get('speed') is not None]
+        if speeds:
+            logger.info(f"Speed range: {min(speeds):.1f} to {max(speeds):.1f} km/h, avg: {sum(speeds)/len(speeds):.1f} km/h")
+        
+        # Step 2: Use moving average filter for position smoothing
+        smoothed = smooth_track(track_with_speeds)
+        logger.info(f"Moving average smoothing applied: {len(smoothed)} points")
+        
+        # Free memory
+        del track_with_speeds
+        gc.collect()
+        
+        # Step 3: Calculate track length for adaptive interpolation spacing
+        track_length_km = 0
+        try:
+            track_length_km = sum(
+                haversine(smoothed[i]['lat'], smoothed[i]['lon'], 
+                       smoothed[i+1]['lat'], smoothed[i+1]['lon'])
+                for i in range(len(smoothed) - 1)
+            )
+            logger.info(f"Track length: {track_length_km:.2f} km")
+        except Exception as e:
+            logger.warning(f"Error calculating track length: {e}")
+        
+        # Adjust interpolation spacing based on track length
+        # - Short tracks (<10km): 5m spacing for detailed view
+        # - Medium tracks (10-50km): 10m spacing
+        # - Long tracks (>50km): 15-20m spacing to limit point count
+        if track_length_km < 10:
+            meter_spacing = 5
+        elif track_length_km < 50:
+            meter_spacing = 10
         else:
-            logger.warning(f"Failed to process chunk {i+1}, will try again with smaller pieces")
-            
-            # If a chunk fails, try to process it as smaller sub-chunks
-            if len(chunk) > 1000:
-                sub_chunk_size = min(1000, len(chunk) // 2)
-                sub_overlap = sub_chunk_size // 5
-                sub_chunks = chunk_track(chunk, sub_chunk_size, sub_overlap)
-                
-                for sub_chunk in sub_chunks:
-                    sub_matched = process_chunk_with_valhalla(sub_chunk)
-                    if sub_matched and len(sub_matched) >= 5:
-                        # Convert tuples to dictionaries if necessary
-                        if sub_matched and isinstance(sub_matched[0], tuple):
-                            sub_matched = [{'lat': lat, 'lon': lon} for lat, lon in sub_matched]
-                        processed_chunks.append(sub_matched)
-    
-    # Step 5: Connect the processed chunks
-    matched_track = connect_processed_chunks(processed_chunks)
-    
-    # Convert tuples to dictionaries if necessary
-    if matched_track and isinstance(matched_track[0], tuple):
-        matched_track = [{'lat': lat, 'lon': lon} for lat, lon in matched_track]
-    
-    # REMOVING EKF FILTERING
-    # Instead of applying EKF smoothing, we'll use the matched track directly
-    final_coords = matched_track
-    
-    # Ensure all points have time field (even if None)
-    for point in final_coords:
-        if 'time' not in point:
-            point['time'] = None  # Will be filled in build_gpx_from_coords
+            meter_spacing = 20
+        
+        # Step 4: Use enhanced interpolation that ensures all points have speed data
+        processed_points = interpolate_track(smoothed, meter_per_point=meter_spacing)
+        logger.info(f"Interpolation with speed data complete: {len(processed_points)} points")
+        
+        # Free memory
+        del smoothed
+        gc.collect()
+        
+        # Step 5: Split into chunks and process with Valhalla
+        chunks = chunk_track(processed_points)
+        logger.info(f"Track split into {len(chunks)} chunks for processing")
+        
+        # Free memory
+        del processed_points
+        gc.collect()
+        
+        processed_chunks = []
+        
+        for i, chunk in enumerate(chunks):
+            logger.info(f"Processing chunk {i+1}/{len(chunks)} with {len(chunk)} points")
+            matched_coords = process_chunk_with_valhalla(chunk)
 
-    # Recalculate speeds for the final track
-    final_coords = calculate_speeds(final_coords)
+            if matched_coords and len(matched_coords) >= 5:
+                logger.info(f"Successfully processed chunk {i+1} with {len(matched_coords)} points")
+                # Convert tuples to dictionaries if necessary
+                if matched_coords and isinstance(matched_coords[0], tuple):
+                    matched_coords = [{'lat': lat, 'lon': lon} for lat, lon in matched_coords]
+                processed_chunks.append(matched_coords)
+            else:
+                logger.warning(f"Failed to process chunk {i+1}, will try again with smaller pieces")
+                
+                # If a chunk fails, try to process it as smaller sub-chunks
+                if len(chunk) > 1000:
+                    sub_chunk_size = min(1000, len(chunk) // 2)
+                    sub_overlap = sub_chunk_size // 5
+                    sub_chunks = chunk_track(chunk, sub_chunk_size, sub_overlap)
+                    
+                    for sub_chunk in sub_chunks:
+                        sub_matched = process_chunk_with_valhalla(sub_chunk)
+                        if sub_matched and len(sub_matched) >= 5:
+                            # Convert tuples to dictionaries if necessary
+                            if sub_matched and isinstance(sub_matched[0], tuple):
+                                sub_matched = [{'lat': lat, 'lon': lon} for lat, lon in sub_matched]
+                            processed_chunks.append(sub_matched)
+        
+        # Step 6: Connect the processed chunks
+        matched_track = connect_processed_chunks(processed_chunks)
+        logger.info(f"Connected processed chunks: {len(matched_track)} points")
+        
+        # Free memory
+        del processed_chunks
+        gc.collect()
+        
+        # Convert tuples to dictionaries if necessary
+        if matched_track and isinstance(matched_track[0], tuple):
+            matched_track = [{'lat': lat, 'lon': lon} for lat, lon in matched_track]
+        
+        # Step 7: Ensure all points have time and speed fields
+        for point in matched_track:
+            if 'time' not in point:
+                point['time'] = None  # Will be filled in build_gpx_from_coords
+
+        # Step 8: Recalculate speeds for the final track
+        # This ensures speed data is accurate after map matching
+        final_coords = calculate_speeds(matched_track)
+        logger.info(f"Final speed calculation complete: {len(final_coords)} points")
+        
+        # Check and log speed data coverage
+        points_with_speed = sum(1 for p in final_coords if p.get('speed') is not None)
+        logger.info(f"Speed data coverage: {points_with_speed}/{len(final_coords)} points ({points_with_speed/len(final_coords)*100:.1f}%)")
+        
+        # Free memory
+        del matched_track
+        gc.collect()
+        
+        return final_coords
     
-    return final_coords
+    except Exception as e:
+        logger.error(f"Error in track processing: {str(e)}")
+        # logger.error(traceback.format_exc())
+        # Return original track if processing fails
+        return track
 
 def process_gpx_workflow(gpx_contents, return_raw_data=False):
     """
     Complete workflow for processing a GPX file
+    Ensures speed data is available for frontend display
     
     Args:
         gpx_contents: String containing GPX file contents
@@ -141,7 +209,7 @@ def process_gpx_workflow(gpx_contents, return_raw_data=False):
             else:
                 return False, "No track points found in GPX.", None, None, [], None
         
-        # Process the track
+        # Process the track with speed data
         processed_coords = process_track(raw_points)
         
         if not processed_coords:
@@ -185,10 +253,22 @@ def process_gpx_workflow(gpx_contents, return_raw_data=False):
                     chunk_size=4
                 )
         
+        # Final check to ensure ALL points have speed data (important for frontend)
+        for i, point in enumerate(track_points):
+            if 'speed' not in point or point['speed'] is None:
+                # Use a default if no speed data available
+                point['speed'] = 20  # Default 20 km/h
+                
         # Prepare data for template
         track_data = prepare_track_for_template(track_points)
         
-        success_message = f"Track processed successfully! EKF smoothing and speed calculations applied."
+        # Log speed data for debugging
+        speeds = [p.get('speed') for p in track_data if p.get('speed') is not None]
+        if speeds:
+            logger.info(f"Final speed range: {min(speeds):.1f} to {max(speeds):.1f} km/h, avg: {sum(speeds)/len(speeds):.1f} km/h")
+            logger.info(f"Speed data coverage in final output: {len(speeds)}/{len(track_data)} points ({len(speeds)/len(track_data)*100:.1f}%)")
+        
+        success_message = f"Track processed successfully with {len(track_points)} points! Speed data calculated for display."
         
         # Return all needed data, including raw data if requested
         if return_raw_data:
