@@ -2,7 +2,7 @@ import datetime
 from functions.haversine import haversine
 
 # Linear interpolation to insert additional points if gaps are large
-def interpolate_track(points, max_time_gap=3, max_dist=3, default_speed=None, speed_strategy='auto'):
+def interpolate_track(points, max_time_gap=0.1, max_dist=0.1):
     """
     Add interpolated points between existing points if gaps are too large (spatially or temporally)
     
