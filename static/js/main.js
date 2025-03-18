@@ -501,6 +501,96 @@ function clearSpeedMarker() {
   }
 }
 
+// Function to calculate the total distance of the track
+function calculateTrackMetrics() {
+  // Skip if there are no track points
+  if (latlngs.length <= 1) {
+    debugLog('Not enough track points to calculate metrics');
+    return { 
+      length: 0, 
+      maxSpeed: 0, 
+      avgSpeed: 0 
+    };
+  }
+  
+  // Calculate total distance using Haversine formula
+  let totalDist = 0;
+  let maxSpeed = 0;
+  let validSpeedPoints = 0;
+  let totalSpeed = 0;
+  
+  // First check for max speed and gather speed data
+  for (let i = 0; i < trackPoints.length; i++) {
+    if (trackPoints[i] && typeof trackPoints[i].speed !== 'undefined') {
+      const speed = trackPoints[i].speed;
+      if (!isNaN(speed) && speed > 0) {
+        if (speed > maxSpeed) {
+          maxSpeed = speed;
+        }
+        totalSpeed += speed;
+        validSpeedPoints++;
+      }
+    }
+  }
+  
+  // Calculate total track distance
+  for (let i = 0; i < latlngs.length - 1; i++) {
+    let lat1 = latlngs[i][0], lon1 = latlngs[i][1];
+    let lat2 = latlngs[i+1][0], lon2 = latlngs[i+1][1];
+    let R = 6371000; // Earth radius in meters
+    
+    // Haversine formula
+    let phi1 = lat1 * Math.PI/180;
+    let phi2 = lat2 * Math.PI/180;
+    let d_phi = phi2 - phi1;
+    let d_lambda = (lon2 - lon1) * Math.PI/180;
+    let a = Math.sin(d_phi/2)**2 + 
+            Math.cos(phi1) * Math.cos(phi2) * 
+            Math.sin(d_lambda/2)**2;
+    let c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    let segmentDist = R * c;
+    
+    totalDist += segmentDist;
+  }
+  
+  // Calculate average speed (either from speed values or from time if available)
+  let avgSpeed = 0;
+  
+  if (validSpeedPoints > 0) {
+    // Calculate from recorded speed values
+    avgSpeed = totalSpeed / validSpeedPoints;
+  } else {
+    // Try to calculate from first and last point timestamps
+    const firstPoint = trackPoints[0];
+    const lastPoint = trackPoints[trackPoints.length - 1];
+    
+    if (firstPoint && lastPoint && firstPoint.time && lastPoint.time) {
+      try {
+        const t1 = new Date(firstPoint.time + 'Z').getTime();
+        const t2 = new Date(lastPoint.time + 'Z').getTime();
+        const dtHours = (t2 - t1) / (1000 * 60 * 60); // Time difference in hours
+        
+        if (dtHours > 0) {
+          avgSpeed = (totalDist / 1000) / dtHours; // km/h
+        }
+      } catch (e) {
+        debugLog(`Error calculating average speed from timestamps: ${e.message}`);
+      }
+    }
+  }
+  
+  // Convert distance to kilometers
+  const distanceKm = totalDist / 1000;
+  
+  debugLog(`Track metrics calculated: Length=${distanceKm.toFixed(2)}km, Max Speed=${maxSpeed.toFixed(1)}km/h, Avg Speed=${avgSpeed.toFixed(1)}km/h`);
+  
+  return {
+    length: distanceKm,
+    maxSpeed: maxSpeed,
+    avgSpeed: avgSpeed
+  };
+}
+
 document.addEventListener('DOMContentLoaded', function() {
   // Update the points display to show original and processed counts
   const originalPointsEl = document.getElementById('originalPoints');
@@ -513,6 +603,24 @@ document.addEventListener('DOMContentLoaded', function() {
   if (processedPointsEl) {
     processedPointsEl.innerText = trackPoints.length;
     debugLog(`Updated processed points display to show: ${trackPoints.length}`);
+  }
+  
+  // Calculate and display track metrics
+  const trackMetrics = calculateTrackMetrics();
+  
+  const trackLengthEl = document.getElementById('trackLength');
+  if (trackLengthEl) {
+    trackLengthEl.innerText = trackMetrics.length.toFixed(2);
+  }
+  
+  const maxSpeedEl = document.getElementById('maxSpeed');
+  if (maxSpeedEl) {
+    maxSpeedEl.innerText = trackMetrics.maxSpeed.toFixed(2);
+  }
+  
+  const avgSpeedEl = document.getElementById('avgSpeed');
+  if (avgSpeedEl) {
+    avgSpeedEl.innerText = trackMetrics.avgSpeed.toFixed(2);
   }
   
   // Set up speed marker button
