@@ -17,11 +17,12 @@ logging.basicConfig(level=logging.INFO)
 # Global variables to store last processed track (for simplicity in this demo)
 latest_corrected_gpx = None
 latest_track_points = None  # list of dicts: [{'lat': ..., 'lon': ..., 'time': ...}, ...]
+original_points_count = 0  # Track original points count
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
     """Main route for web interface"""
-    global latest_corrected_gpx, latest_track_points
+    global latest_corrected_gpx, latest_track_points, original_points_count
     
     track_data_for_template = prepare_track_for_template(latest_track_points)
     track_json = json.dumps(track_data_for_template, ensure_ascii=False)
@@ -33,11 +34,18 @@ def index():
             return render_template('index.html', 
                                   track=track_data_for_template,
                                   track_json=track_json,
+                                  original_points=original_points_count,
                                   message="No file selected.")
 
         try:
             # Read GPX file content
             gpx_contents = file.read().decode('utf-8', errors='ignore')
+            
+            # Parse GPX to get original points count
+            root = ET.fromstring(gpx_contents)
+            namespace = {'gpx': 'http://www.topografix.com/GPX/1/1'}
+            original_points_count = len(root.findall('.//gpx:trkpt', namespace))
+            app.logger.info(f"Original points count: {original_points_count}")
             
             # Process the GPX file through our workflow
             success, message, gpx_xml, track_points, track_data, _ = process_gpx_workflow(
@@ -57,6 +65,7 @@ def index():
             return render_template('index.html', 
                                   track=track_data_for_template, 
                                   track_json=track_json,
+                                  original_points=original_points_count,
                                   message=message)
             
         except Exception as e:
@@ -64,12 +73,14 @@ def index():
             return render_template('index.html', 
                                   track=track_data_for_template,
                                   track_json=track_json,
+                                  original_points=original_points_count,
                                   message=f"Error processing file: {str(e)}")
     
     # GET request - show upload form or map if already processed
     return render_template('index.html', 
                           track=track_data_for_template,
-                          track_json=track_json)
+                          track_json=track_json,
+                          original_points=original_points_count)
         
 @app.route('/download')
 def download():
