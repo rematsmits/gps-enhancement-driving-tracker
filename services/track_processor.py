@@ -67,7 +67,7 @@ def process_track(track):
             logger.info(f"Speed range: {min(speeds):.1f} to {max(speeds):.1f} km/h, avg: {sum(speeds)/len(speeds):.1f} km/h")
         
         # Step 2: Use moving average filter for position smoothing
-        smoothed = smooth_track(track_with_speeds)
+        smoothed = ekf_smooth_track(track_with_speeds)
         logger.info(f"Moving average smoothing applied: {len(smoothed)} points")
         
         # Free memory
@@ -91,11 +91,11 @@ def process_track(track):
         # - Medium tracks (10-50km): 10m spacing
         # - Long tracks (>50km): 15-20m spacing to limit point count
         if track_length_km < 10:
-            meter_spacing = 5
+            meter_spacing = 2
         elif track_length_km < 50:
-            meter_spacing = 10
+            meter_spacing = 5
         else:
-            meter_spacing = 20
+            meter_spacing = 10
         
         # Step 4: Use enhanced interpolation that ensures all points have speed data
         processed_points = interpolate_track(smoothed, meter_per_point=meter_spacing)
