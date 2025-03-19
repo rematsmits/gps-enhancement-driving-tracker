@@ -1,4 +1,5 @@
 import logging
+import gc
 
 from functions.safe_datetime import safe_datetime
 from functions.js_date_format import format_time_for_js
@@ -90,15 +91,15 @@ def process_track(track):
         # - Short tracks (<10km): 5m spacing for detailed view
         # - Medium tracks (10-50km): 10m spacing
         # - Long tracks (>50km): 15-20m spacing to limit point count
-        if track_length_km < 10:
-            meter_spacing = 2
-        elif track_length_km < 50:
-            meter_spacing = 5
-        else:
-            meter_spacing = 10
+        # if track_length_km < 10:
+        #     meter_spacing = 2
+        # elif track_length_km < 50:
+        #     meter_spacing = 5
+        # else:
+        #     meter_spacing = 10
         
         # Step 4: Use enhanced interpolation that ensures all points have speed data
-        processed_points = interpolate_track(smoothed, meter_per_point=meter_spacing)
+        processed_points = interpolate_track(smoothed)
         logger.info(f"Interpolation with speed data complete: {len(processed_points)} points")
         
         # Free memory

@@ -1,8 +1,9 @@
 import datetime
+import math
 from functions.haversine import haversine
 
 # Linear interpolation to insert additional points if gaps are large
-def interpolate_track(points, max_time_gap=0.1, max_dist=0.1):
+def interpolate_track(points, max_time_gap=0.05, max_dist=0.05):
     """
     Add interpolated points between existing points if gaps are too large (spatially or temporally)
     
@@ -40,20 +41,30 @@ def interpolate_track(points, max_time_gap=0.1, max_dist=0.1):
         
         # Interpolate if there's a large spatial gap or time gap
         if dist > max_dist or dt > max_time_gap:
-            # Decide how many points to insert based on the larger criteria
-            num_by_dist = max(1, int(dist // max_dist))
-            num_by_time = max(1, int(dt // max_time_gap))
-            num_new = max(num_by_dist, num_by_time)
+            # Calculate the number of segments needed to maintain even distribution
+            # Use ceiling to ensure we don't exceed max_dist or max_time_gap
+            num_segments_by_dist = math.ceil(dist / max_dist) if max_dist > 0 else 1
+            num_segments_by_time = math.ceil(dt / max_time_gap) if max_time_gap > 0 else 1
             
-            for k in range(1, num_new+1):
-                frac = k / float(num_new+1)
+            # Use the more constraining factor (whichever requires more points)
+            num_segments = max(num_segments_by_dist, num_segments_by_time)
+            
+            # Number of new points to insert = segments - 1
+            num_new_points = num_segments - 1
+            
+            # Insert evenly spaced points
+            for k in range(1, num_new_points + 1):
+                # Calculate the exact fraction for even spacing
+                frac = k / float(num_segments)
                 new_lat = p1['lat'] + frac * (p2['lat'] - p1['lat'])
                 new_lon = p1['lon'] + frac * (p2['lon'] - p1['lon'])
+                
                 # interpolate time
                 if t1 and t2:
                     new_time = t1 + datetime.timedelta(seconds=frac * dt)
                 else:
                     new_time = None
+                    
                 interpolated.append({'lat': new_lat, 'lon': new_lon, 'time': new_time})
     
     interpolated.append(points[-1])
