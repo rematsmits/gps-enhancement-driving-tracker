@@ -75,28 +75,6 @@ def process_track(track):
         del track_with_speeds
         gc.collect()
         
-        # Step 3: Calculate track length for adaptive interpolation spacing
-        track_length_km = 0
-        try:
-            track_length_km = sum(
-                haversine(smoothed[i]['lat'], smoothed[i]['lon'], 
-                       smoothed[i+1]['lat'], smoothed[i+1]['lon'])
-                for i in range(len(smoothed) - 1)
-            )
-            logger.info(f"Track length: {track_length_km:.2f} km")
-        except Exception as e:
-            logger.warning(f"Error calculating track length: {e}")
-        
-        # Adjust interpolation spacing based on track length
-        # - Short tracks (<10km): 5m spacing for detailed view
-        # - Medium tracks (10-50km): 10m spacing
-        # - Long tracks (>50km): 15-20m spacing to limit point count
-        # if track_length_km < 10:
-        #     meter_spacing = 2
-        # elif track_length_km < 50:
-        #     meter_spacing = 5
-        # else:
-        #     meter_spacing = 10
         
         # Step 4: Use enhanced interpolation that ensures all points have speed data
         processed_points = interpolate_track(smoothed)
