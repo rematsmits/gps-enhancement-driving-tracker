@@ -413,7 +413,7 @@ function updateMeasurements() {
     const formattedSeconds = seconds.toString().padStart(2, '0');
     const formattedTenthsOfSecond = tenthsOfSecond.toString().padEnd(2, '0');
     
-    const timeDisplay = `${formattedMinutes}:${formattedSeconds}.${formattedTenthsOfSecond}`;
+    const timeDisplay = `${formattedMinutes}:${formattedSeconds}:${formattedTenthsOfSecond}`;
     
     var avgSpeed = (totalDist/1000) / (dtSec/3600);
 
