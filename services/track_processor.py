@@ -68,7 +68,7 @@ def process_track(track):
             logger.info(f"Speed range: {min(speeds):.1f} to {max(speeds):.1f} km/h, avg: {sum(speeds)/len(speeds):.1f} km/h")
         
         # Step 2: Use moving average filter for position smoothing
-        smoothed = ekf_smooth_track(track_with_speeds)
+        smoothed = smooth_track(track_with_speeds)
         logger.info(f"Moving average smoothing applied: {len(smoothed)} points")
         
         # Free memory
